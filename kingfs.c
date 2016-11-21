@@ -22,8 +22,11 @@ static ssize_t kingfs_read_file(struct file *filp, char *buf,
     char tmp[TMPSIZE];
     atomic_t *counter = (atomic_t *) filp->private_data;
     v = atomic_read(counter);
-    atomic_inc(counter);
-
+    if (*offset > 0) {
+        ;
+    }else {
+        atomic_inc(counter);
+    }
     len = snprintf(tmp, TMPSIZE, "%d\n", v);
     printk(KERN_INFO"%d\n",atomic_read(counter));
     if (*offset > len) {
