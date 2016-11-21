@@ -25,6 +25,7 @@ static ssize_t kingfs_read_file(struct file *filp, char *buf,
     atomic_inc(counter);
 
     len = snprintf(tmp, TMPSIZE, "%d\n", v);
+    printk(KERN_INFO"%d\n",counter);
     if (*offset > len) {
         return 0;
     }
@@ -144,7 +145,7 @@ static int kingfs_fill_super(struct super_block *sb,
 static struct dentry *kingfs_get_super(struct file_system_type *fst,
                     int flags, const char *devname, void *data)
 {
-    return mount_single(fst, flags, data, kingfs_fill_super);
+    return mount_nodev(fst, flags, data, kingfs_fill_super);
 }
 
 static struct file_system_type kingfs_type = {
@@ -158,4 +159,9 @@ static __init int kingfs_init(void)
 {
     return register_filesystem(&kingfs_type);
 }
+static __exit void kingfs_exit(void)
+{
+    return unregister_filesystem(&kingfs_type);
+}
 module_init(kingfs_init);
+module_exit(kingfs_exit);
