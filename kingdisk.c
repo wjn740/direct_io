@@ -11,9 +11,9 @@ static int kingdisk_major = 0;
 module_param(kingdisk_major, int, 0);
 static int hardsect_size = 512;
 module_param(hardsect_size, int, 0);
-static int nsectors = 32768; /* how big it is */ 
+static int nsectors = 1048576; /* how big it is */ 
 module_param(nsectors, int, 0);
-static int ndevices = 1;
+static int ndevices = 2;
 module_param(ndevices, int, 0);
 
 enum {
@@ -159,8 +159,9 @@ return 0;
     bio_for_each_segment(bvec, bio, iter) {
         //char *buffer = __bio_kmap_atomic(bio, iter);
         char *buffer = bvec_kmap_irq(&bvec, &flags);
-        //kingdisk_transfer(dev, sector, bio_sectors(bio),
-         //           buffer, bio_data_dir(bio) == WRITE);
+	printk(KERN_NOTICE"sector=%ld, sectors=%d, buffer=%p, write=%d\n", sector, bio_sectors(bio), buffer, bio_data_dir(bio)==WRITE);
+        kingdisk_transfer(dev, sector, bio_sectors(bio),
+                   buffer, bio_data_dir(bio) == WRITE);
         sector += bio_sectors(bio);
 	printk(KERN_INFO ".");
         //__bio_kunmap_atomic(bio);
