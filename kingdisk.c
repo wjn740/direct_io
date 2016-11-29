@@ -13,7 +13,7 @@ static int hardsect_size = 512;
 module_param(hardsect_size, int, 0);
 static int nsectors = 32768; /* how big it is */ 
 module_param(nsectors, int, 0);
-static int ndevices = 2;
+static int ndevices = 1;
 module_param(ndevices, int, 0);
 
 enum {
@@ -151,16 +151,21 @@ static int kingdisk_xfer_bio(struct kingdisk_dev *dev, struct bio *bio)
 {
     struct bvec_iter iter;
     struct bio_vec bvec;
+	unsigned long flags;
     sector_t sector = bio->bi_iter.bi_sector;
+return 0;
     
 	printk(KERN_EMERG "10");
     bio_for_each_segment(bvec, bio, iter) {
-        char *buffer = __bio_kmap_atomic(bio, iter);
-        kingdisk_transfer(dev, sector, bio_sectors(bio),
-                    buffer, bio_data_dir(bio) == WRITE);
+        //char *buffer = __bio_kmap_atomic(bio, iter);
+        char *buffer = bvec_kmap_irq(&bvec, &flags);
+        //kingdisk_transfer(dev, sector, bio_sectors(bio),
+         //           buffer, bio_data_dir(bio) == WRITE);
         sector += bio_sectors(bio);
 	printk(KERN_INFO ".");
-        __bio_kunmap_atomic(bio);
+        //__bio_kunmap_atomic(bio);
+	flush_dcache_page(bvec.bv_page);
+        bvec_kunmap_irq(buffer, &flags);
     }
 	printk(KERN_EMERG "12");
     return 0;
@@ -204,6 +209,7 @@ static void kingdisk_full_request(struct request_queue *q)
         sectors_xferred = kingdisk_xfer_request(dev, req);
 
 	spin_unlock_irq(q->queue_lock);
+	//WARN_ON(!list_empty(&req->queuelist));
 	INIT_LIST_HEAD(&req->queuelist);
 	blk_end_request_all(req, 0);
 	spin_lock_irq(q->queue_lock);
