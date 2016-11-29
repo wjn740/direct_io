@@ -2,13 +2,16 @@
 #include <linux/bio.h>
 #include <linux/blkdev.h>
 #include <uapi/linux/hdreg.h>
+#include <linux/list.h>
 
+
+MODULE_LICENSE("GPL");
 
 static int kingdisk_major = 0;
 module_param(kingdisk_major, int, 0);
 static int hardsect_size = 512;
 module_param(hardsect_size, int, 0);
-static int nsectors = 1048576; /* how big it is */ 
+static int nsectors = 32768; /* how big it is */ 
 module_param(nsectors, int, 0);
 static int ndevices = 2;
 module_param(ndevices, int, 0);
@@ -19,7 +22,7 @@ enum {
     RM_NOQUEUE = 2,
 };
 
-static int request_mode = RM_SIMPLE;
+static int request_mode = RM_FULL;
 module_param(request_mode, int, 0);
 
 #define SBULL_MINORS    16
@@ -140,7 +143,7 @@ static void kingdisk_request(struct request_queue *q)
         }
         kingdisk_transfer(dev, blk_rq_pos(req), blk_rq_cur_sectors(req),
                     req->buffer, rq_data_dir(req));
-        blk_end_request(req, 0, blk_rq_cur_sectors(req)*KERNEL_SECTOR_SIZE);
+        blk_end_request(req, 0, blk_rq_bytes(req));
     }
 }
 #endif
@@ -150,13 +153,16 @@ static int kingdisk_xfer_bio(struct kingdisk_dev *dev, struct bio *bio)
     struct bio_vec bvec;
     sector_t sector = bio->bi_iter.bi_sector;
     
+	printk(KERN_EMERG "10");
     bio_for_each_segment(bvec, bio, iter) {
         char *buffer = __bio_kmap_atomic(bio, iter);
         kingdisk_transfer(dev, sector, bio_sectors(bio),
                     buffer, bio_data_dir(bio) == WRITE);
-        //sector += bio_cur_sectors(bio);
+        sector += bio_sectors(bio);
+	printk(KERN_INFO ".");
         __bio_kunmap_atomic(bio);
     }
+	printk(KERN_EMERG "12");
     return 0;
 }
 
@@ -165,10 +171,14 @@ static int kingdisk_xfer_request(struct kingdisk_dev *dev, struct request *req)
     struct bio *bio;
     int nsect = 0;
 
+	printk(KERN_EMERG "6");
     __rq_for_each_bio(bio, req) {
+	printk(KERN_EMERG "7");
         kingdisk_xfer_bio(dev, bio);
         nsect += bio->bi_iter.bi_size/KERNEL_SECTOR_SIZE;
+	printk(KERN_EMERG "8");
     }
+	printk(KERN_EMERG "9");
     return nsect;
 }
 
@@ -176,17 +186,28 @@ static void kingdisk_full_request(struct request_queue *q)
 {
     struct request *req;
     int sectors_xferred;
+	unsigned long flags;
     struct kingdisk_dev *dev = q->queuedata;
+	
 
-    while((req = blk_peek_request(q)) != NULL) {
+	printk(KERN_EMERG "1\n");
+    while((req = blk_fetch_request(q)) != NULL) {
+	printk(KERN_EMERG "2");
         //if (! blk_fs_request(req)) {
         if (req == NULL || (req->cmd_type != REQ_TYPE_FS)) {
             printk(KERN_NOTICE "skip non-fs request\n");
-            blk_end_request_all(req, -EIO);
+            blk_end_request_all(req, 0);
+		printk(KERN_EMERG "3\n");
             continue;
         }
+	printk(KERN_EMERG "4");
         sectors_xferred = kingdisk_xfer_request(dev, req);
-        blk_end_request(req, 0, blk_rq_bytes(req));
+
+	spin_unlock_irq(q->queue_lock);
+	INIT_LIST_HEAD(&req->queuelist);
+	blk_end_request_all(req, 0);
+	spin_lock_irq(q->queue_lock);
+	printk(KERN_EMERG "5");
     }
 }
 
