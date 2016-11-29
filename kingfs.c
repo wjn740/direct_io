@@ -15,6 +15,7 @@ static atomic_t counter;
 #define TMPSIZE 20
 #define KINGFS_MAGIC 0x20161101
 
+#if 0
 static ssize_t kingfs_read_file(struct file *filp, char *buf,
                             size_t count, loff_t *offset)
 {
@@ -40,6 +41,7 @@ static ssize_t kingfs_read_file(struct file *filp, char *buf,
     *offset += count;
     return count;
 }
+#endif
 
 static ssize_t kingfs_write_file(struct file *filp, const char *buf,
                             size_t count, loff_t *offset)
@@ -67,7 +69,8 @@ static int kingfs_open(struct inode *inode, struct file *filp)
 
 static struct file_operations kingfs_file_ops = {
     .open = kingfs_open,
-    .read = kingfs_read_file,
+    //.read = kingfs_read_file,
+    .read_iter = generic_file_read_iter,
     .write = kingfs_write_file,
 };
 

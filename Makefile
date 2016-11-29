@@ -1,5 +1,5 @@
 ifneq ($(KERNELRELEASE),)
-   obj-m := kingfs.o
+   obj-m := kingfs.o kingdisk.o
 else
 
 KERNELDIR ?= /lib/modules/$(shell uname -r)/build
