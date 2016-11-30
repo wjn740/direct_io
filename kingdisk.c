@@ -48,6 +48,7 @@ struct kingdisk_dev{
 
 static struct kingdisk_dev *Devices = NULL;
 
+#if 0
 static void kingdisk_transfer(struct kingdisk_dev *dev, unsigned long sector,
                 unsigned long nsect, char *buffer, int write)
 {
@@ -62,6 +63,7 @@ static void kingdisk_transfer(struct kingdisk_dev *dev, unsigned long sector,
     else
         memcpy(buffer, dev->data + offset, nbytes);
 }
+#endif
 
 static int kingdisk_open(struct block_device *bdev, fmode_t mode)
 {
@@ -171,7 +173,6 @@ static int kingdisk_xfer_bio(struct kingdisk_dev *dev, struct bio *bio)
 {
     struct bvec_iter iter;
     struct bio_vec bvec;
-	unsigned long flags;
     sector_t sector = bio->bi_iter.bi_sector;
     int rw = bio_data_dir(bio);
     
@@ -222,7 +223,6 @@ static void kingdisk_full_request(struct request_queue *q)
 {
     struct request *req;
     int sectors_xferred;
-	unsigned long flags;
     struct kingdisk_dev *dev = q->queuedata;
 	
 
