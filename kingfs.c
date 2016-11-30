@@ -5,6 +5,8 @@
 #include <linux/dcache.h>
 #include <linux/user_namespace.h>
 
+struct inode * kingfs_make_common_inode(struct super_block *sb, const struct inode *dir, umode_t mode);
+
 static struct super_operations kingfs_s_ops = {
     .statfs = simple_statfs,
     .drop_inode = generic_delete_inode,
@@ -15,7 +17,61 @@ static atomic_t counter;
 #define TMPSIZE 20
 #define KINGFS_MAGIC 0x20161101
 
-#if 0
+static const struct address_space_operations kingfs_aops = {
+	.readpage = simple_readpage,
+	.write_begin = simple_write_begin,
+	.write_end = simple_write_end,
+};
+
+const struct file_operations kingfs_common_file_ops = {
+    .read_iter  = generic_file_read_iter,
+    .write_iter = generic_file_write_iter,
+    .mmap       = generic_file_mmap,
+    .fsync      = noop_fsync,
+    .splice_read    = generic_file_splice_read,
+    .splice_write   = iter_file_splice_write,
+    .llseek     = generic_file_llseek,
+};
+
+const struct inode_operations kingfs_common_file_inode_ops = {
+    .setattr    = simple_setattr,
+    .getattr    = simple_getattr,
+};
+
+static int kingfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
+{
+	struct inode *inode;
+	inode = new_inode(dir->i_sb);
+	inode_init_owner(inode, dir, mode);
+	d_instantiate(dentry, inode);
+	return 0;
+}
+static int kingfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
+			bool excl)
+{
+	struct inode *inode;
+	inode = kingfs_make_common_inode(dir->i_sb, dir, mode);
+	inode_init_owner(inode, dir, mode);
+	d_instantiate(dentry, inode);
+	dget(dentry);
+	dir->i_mtime = dir->i_ctime = CURRENT_TIME;
+	return 0;
+}
+static int kingfs_unlink(struct inode *dir, struct dentry *dentry)
+{
+	struct inode *inode = d_inode(dentry);
+	inode->i_ctime = dir->i_ctime;
+	mark_inode_dirty(inode);
+	inode_dec_link_count(inode);
+	return 0;
+}
+static struct inode_operations kingfs_dir_inode_operations = {
+	.create = kingfs_create,
+	.mkdir = kingfs_mkdir,
+	.unlink = kingfs_unlink,
+	.lookup = simple_lookup,
+};
+#if 1
 static ssize_t kingfs_read_file(struct file *filp, char *buf,
                             size_t count, loff_t *offset)
 {
@@ -67,12 +123,14 @@ static int kingfs_open(struct inode *inode, struct file *filp)
     return 0;
 }
 
-static struct file_operations kingfs_file_ops = {
+
+static struct file_operations kingfs_counter_file_ops = {
     .open = kingfs_open,
-    //.read = kingfs_read_file,
-    .read_iter = generic_file_read_iter,
+    .read = kingfs_read_file,
     .write = kingfs_write_file,
 };
+
+
 
 static struct inode *kingfs_make_inode(struct super_block *sb, int mode)
 {
@@ -105,10 +163,11 @@ static struct dentry * kingfs_create_file(struct super_block *sb,
     if (!inode) {
         return NULL;
     }
-    inode->i_fop = &kingfs_file_ops;
+    inode->i_fop = &kingfs_counter_file_ops;
     inode->i_private = counter;
 
     d_add(dentry, inode);
+    printk(KERN_INFO"kingfs: create counter.\n");
     return dentry;
 }
 
@@ -117,6 +176,29 @@ static void kingfs_create_files(struct super_block *sb,
 {
     atomic_set(&counter, 0);
     kingfs_create_file(sb, root, "counter", &counter);
+}
+
+struct inode * kingfs_make_common_inode(struct super_block *sb,
+			const struct inode *dir, umode_t mode)
+{
+	struct inode *inode = new_inode(sb);
+	if (inode) {
+		inode_init_owner(inode, dir, mode);
+		inode->i_mapping->a_ops = &kingfs_aops;
+		mapping_set_gfp_mask(inode->i_mapping, GFP_HIGHUSER);
+		inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
+		switch (mode & S_IFMT) {
+		case S_IFDIR:
+		inode->i_fop = &simple_dir_operations;
+		inode->i_op = &kingfs_dir_inode_operations;
+		break;
+		case S_IFREG:
+		inode->i_fop = &kingfs_common_file_ops;
+		inode->i_op = &kingfs_common_file_inode_ops;
+		break;
+		}
+	}
+	return inode;
 }
 
 static int kingfs_fill_super(struct super_block *sb,
@@ -134,7 +216,8 @@ static int kingfs_fill_super(struct super_block *sb,
     if (!inode) {
         return -EFAULT;
     }
-    inode->i_op = &simple_dir_inode_operations;
+    inode->i_op = &kingfs_dir_inode_operations;
+    //inode->i_op = &simple_dir_inode_operations;
     inode->i_fop = &simple_dir_operations;
 
     root_dentry = d_make_root(inode);
