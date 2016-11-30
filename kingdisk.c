@@ -30,8 +30,9 @@ module_param(request_mode, int, 0);
 #define DEVNUM(kdevnum) (MINOR(kdev_t_to_nr(kdevnum)) >> MINOR_SHIFT)
 
 #define KERNEL_SECTOR_SIZE      512
+#define KERNEL_SECTOR_SHIFT	9
 
-#define INVALIDATE_DELAY        30*HZ
+#define INVALIDATE_DELAY        3000*HZ
 
 
 struct kingdisk_dev{
@@ -102,6 +103,7 @@ int kingdisk_revalidate(struct gendisk *gd)
 
     if (dev->media_change) {
         dev->media_change = 0;
+	printk(KERN_WARNING"kingdisk: media will be zero by timer handler.");
         memset(dev->data, 0, dev->size);
     }
     return 0;
@@ -147,28 +149,56 @@ static void kingdisk_request(struct request_queue *q)
     }
 }
 #endif
+static void kingdisk_transferv2(struct kingdisk_dev *dev, struct page *page,
+                            unsigned int len, unsigned int off, int rw,
+                            sector_t sector)
+{
+    void *buffer = kmap_atomic(page);
+    size_t offset_on_disk = sector << KERNEL_SECTOR_SHIFT;
+
+    if (rw == READ) {
+        memcpy(buffer + off, dev->data + offset_on_disk, len);
+        flush_dcache_page(page);
+	printk("read sector %ld", sector);
+    }else {
+        flush_dcache_page(page);
+        memcpy(dev->data + offset_on_disk, buffer + off, len);
+	printk("write sector %ld", sector);
+    }
+    kunmap_atomic(buffer); 
+}
 static int kingdisk_xfer_bio(struct kingdisk_dev *dev, struct bio *bio)
 {
     struct bvec_iter iter;
     struct bio_vec bvec;
 	unsigned long flags;
     sector_t sector = bio->bi_iter.bi_sector;
-return 0;
+    int rw = bio_data_dir(bio);
     
-	printk(KERN_EMERG "10");
+	//printk(KERN_EMERG "10");
     bio_for_each_segment(bvec, bio, iter) {
+#if 0
         //char *buffer = __bio_kmap_atomic(bio, iter);
         char *buffer = bvec_kmap_irq(&bvec, &flags);
 	printk(KERN_NOTICE"sector=%ld, sectors=%d, buffer=%p, write=%d\n", sector, bio_sectors(bio), buffer, bio_data_dir(bio)==WRITE);
-        kingdisk_transfer(dev, sector, bio_sectors(bio),
-                   buffer, bio_data_dir(bio) == WRITE);
-        sector += bio_sectors(bio);
+        //kingdisk_transfer(dev, sector, bio_sectors(bio),
+         //          buffer, bio_data_dir(bio) == WRITE);
+         if (bio_data_dir(bio) == WRITE) {
+            memcpy(dev->data, buffer, bvec.bv_len);
+         }else {
+            memcpy(buffer, dev->data, bvec.bv_len);
+         }
+        sector += (bio);
 	printk(KERN_INFO ".");
         //__bio_kunmap_atomic(bio);
-	flush_dcache_page(bvec.bv_page);
+	flush_kernel_dcache_page(bvec.bv_page);
         bvec_kunmap_irq(buffer, &flags);
+#endif
+        kingdisk_transferv2(dev, bvec.bv_page, bvec.bv_len, bvec.bv_offset,
+                rw, sector);
+        sector += bvec.bv_len >> KERNEL_SECTOR_SHIFT;
     }
-	printk(KERN_EMERG "12");
+	//printk(KERN_EMERG "12");
     return 0;
 }
 
@@ -177,14 +207,14 @@ static int kingdisk_xfer_request(struct kingdisk_dev *dev, struct request *req)
     struct bio *bio;
     int nsect = 0;
 
-	printk(KERN_EMERG "6");
+	//printk(KERN_EMERG "6");
     __rq_for_each_bio(bio, req) {
-	printk(KERN_EMERG "7");
+	//printk(KERN_EMERG "7");
         kingdisk_xfer_bio(dev, bio);
         nsect += bio->bi_iter.bi_size/KERNEL_SECTOR_SIZE;
-	printk(KERN_EMERG "8");
+	//printk(KERN_EMERG "8");
     }
-	printk(KERN_EMERG "9");
+	//printk(KERN_EMERG "9");
     return nsect;
 }
 
@@ -196,17 +226,17 @@ static void kingdisk_full_request(struct request_queue *q)
     struct kingdisk_dev *dev = q->queuedata;
 	
 
-	printk(KERN_EMERG "1\n");
+	//printk(KERN_EMERG "1\n");
     while((req = blk_fetch_request(q)) != NULL) {
-	printk(KERN_EMERG "2");
+	//printk(KERN_EMERG "2");
         //if (! blk_fs_request(req)) {
         if (req == NULL || (req->cmd_type != REQ_TYPE_FS)) {
             printk(KERN_NOTICE "skip non-fs request\n");
             blk_end_request_all(req, 0);
-		printk(KERN_EMERG "3\n");
+		//printk(KERN_EMERG "3\n");
             continue;
         }
-	printk(KERN_EMERG "4");
+	//printk(KERN_EMERG "4");
         sectors_xferred = kingdisk_xfer_request(dev, req);
 
 	spin_unlock_irq(q->queue_lock);
@@ -214,7 +244,7 @@ static void kingdisk_full_request(struct request_queue *q)
 	INIT_LIST_HEAD(&req->queuelist);
 	blk_end_request_all(req, 0);
 	spin_lock_irq(q->queue_lock);
-	printk(KERN_EMERG "5");
+	//printk(KERN_EMERG "5");
     }
 }
 
@@ -258,6 +288,7 @@ static void setup_device(struct kingdisk_dev *dev, int which)
     memset(dev, 0, sizeof(struct kingdisk_dev));
     dev->size = nsectors*hardsect_size;
     dev->data = vmalloc(dev->size);
+	memset(dev->data, 0, dev->size);
     if (dev->data == NULL) {
         printk(KERN_NOTICE"kingdisk drvier: allocate virtual space \
                         for kingdisk via vmalloc is failed.\n");
@@ -317,6 +348,11 @@ out_vfree:
         vfree(dev->data);
 }
 
+static struct kobject *default_probe(dev_t devt, int *partno, void *data)
+{
+	return NULL;
+}
+
 
 static __init int kingdisk_init(void)
 {
@@ -327,6 +363,7 @@ static __init int kingdisk_init(void)
         printk(KERN_WARNING"kingdisk driver: unable to get major number.\n");
         return -EBUSY;
     }
+    blk_register_region(kingdisk_major, 16, NULL, default_probe, NULL, NULL);
     Devices = kmalloc(ndevices * sizeof(struct kingdisk_dev), GFP_KERNEL);
     if (Devices == NULL) {
         goto out_unregister;
@@ -334,6 +371,7 @@ static __init int kingdisk_init(void)
     for (i = 0; i< ndevices; i++) {
         setup_device(Devices + i, i);
     }
+    printk(KERN_WARNING"kingdisk driver: disks is ready for you.\n");
     return 0;
 
 out_unregister:
@@ -344,6 +382,28 @@ out_unregister:
 
 static void kingdisk_exit(void)
 {
+    int i;
+    for (i = 0; i < ndevices; i++) {
+        struct kingdisk_dev *dev = Devices + i;
+
+        del_timer_sync(&dev->timer);
+        if (dev->gd) {
+            del_gendisk(dev->gd);
+            put_disk(dev->gd);
+        }
+        if (dev->queue) {
+            if (request_mode == RM_NOQUEUE) {
+                blk_put_queue(dev->queue);
+            }else {
+                blk_cleanup_queue(dev->queue);
+            }
+        }
+        if (dev->data) {
+            vfree(dev->data);
+        }
+    }
+    unregister_blkdev(kingdisk_major, "kingdisk");
+    kfree(Devices);
 }
 module_init(kingdisk_init);
 module_exit(kingdisk_exit);
