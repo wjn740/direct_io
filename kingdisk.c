@@ -344,6 +344,28 @@ out_unregister:
 
 static void kingdisk_exit(void)
 {
+    int i;
+    for (i = 0; i < ndevices; i++) {
+        struct kingdisk_dev *dev = Devices + i;
+
+        del_timer_sync(&dev->timer);
+        if (dev->gd) {
+            del_gendisk(dev->gd);
+            put_disk(dev->gd);
+        }
+        if (dev->queue) {
+            if (request_mode == RM_NOQUEUE) {
+                blk_put_queue(dev->queue);
+            }else {
+                blk_cleanup_queue(dev->queue);
+            }
+        }
+        if (dev->data) {
+            vfree(dev->data);
+        }
+    }
+    unregister_blkdev(kingdisk_major, "kingdisk");
+    kfree(Devices);
 }
 module_init(kingdisk_init);
 module_exit(kingdisk_exit);
