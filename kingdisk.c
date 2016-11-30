@@ -147,26 +147,53 @@ static void kingdisk_request(struct request_queue *q)
     }
 }
 #endif
+static void kingdisk_transferv2(struct kingdisk_dev *dev, struct page *page,
+                            unsigned int len, unsigned int off, int rw,
+                            sector_t sector)
+{
+    void *buffer = kmap_atomic(page);
+    size_t offset_on_disk = sector << KERNEL_SECTOR_SHIFT;
+
+    if (rw = READ) {
+        memcpy(buffer + off, dev->data + offset_on_disk, len);
+        flush_dcache_page(page);
+    }else {
+        flush_dcache_page(page);
+        memcpy(dev->data + offset_on_disk, buffer + off, len);
+    }
+    kunmap_atomic(buffer); 
+}
 static int kingdisk_xfer_bio(struct kingdisk_dev *dev, struct bio *bio)
 {
     struct bvec_iter iter;
     struct bio_vec bvec;
 	unsigned long flags;
     sector_t sector = bio->bi_iter.bi_sector;
+    int rw = bio_data_dir(bio);
 return 0;
     
 	printk(KERN_EMERG "10");
     bio_for_each_segment(bvec, bio, iter) {
+#if 0
         //char *buffer = __bio_kmap_atomic(bio, iter);
         char *buffer = bvec_kmap_irq(&bvec, &flags);
 	printk(KERN_NOTICE"sector=%ld, sectors=%d, buffer=%p, write=%d\n", sector, bio_sectors(bio), buffer, bio_data_dir(bio)==WRITE);
-        kingdisk_transfer(dev, sector, bio_sectors(bio),
-                   buffer, bio_data_dir(bio) == WRITE);
-        sector += bio_sectors(bio);
+        //kingdisk_transfer(dev, sector, bio_sectors(bio),
+         //          buffer, bio_data_dir(bio) == WRITE);
+         if (bio_data_dir(bio) == WRITE) {
+            memcpy(dev->data, buffer, bvec.bv_len);
+         }else {
+            memcpy(buffer, dev->data, bvec.bv_len);
+         }
+        sector += (bio);
 	printk(KERN_INFO ".");
         //__bio_kunmap_atomic(bio);
-	flush_dcache_page(bvec.bv_page);
+	flush_kernel_dcache_page(bvec.bv_page);
         bvec_kunmap_irq(buffer, &flags);
+#endif
+        kingdisk_transferv2(dev, bvec.bv_page, bvec.bv_len, bvec.bv_offset,
+                rw, sector);
+        sector += bvec.bv_len >> KERNEL_SECTOR_SHIFT;
     }
 	printk(KERN_EMERG "12");
     return 0;
